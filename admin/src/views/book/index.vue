@@ -9,6 +9,7 @@ import {
   type BookItem,
   type BookCategoryItem
 } from "@/api/book";
+import { getPresignedUrl } from "@/api/upload";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
 
 defineOptions({ name: "BookIndex" });
@@ -138,15 +139,34 @@ async function handleUpload() {
     fd.append("description", uploadForm.value.description);
     if (uploadForm.value.category_id)
       fd.append("category_id", String(uploadForm.value.category_id));
-    if (uploadForm.value.file) fd.append("file", uploadForm.value.file);
+
+    // 大文件（>5MB）直传 R2，绕过 Netlify 6MB 限制
+    const bookFile = uploadForm.value.file;
+    if (bookFile && bookFile.size > 5 * 1024 * 1024) {
+      const presigned = await getPresignedUrl({
+        filename: bookFile.name,
+        contentType: bookFile.type || "application/epub+zip",
+        prefix: "uploads/books"
+      });
+      const res = await fetch(presigned.url, {
+        method: "PUT",
+        body: bookFile,
+        headers: { "Content-Type": bookFile.type || "application/epub+zip" }
+      });
+      if (!res.ok) throw new Error("图书文件直传失败");
+      fd.append("file", presigned.url.replace(/\?.*$/, ""));
+    } else if (bookFile) {
+      fd.append("file", bookFile);
+    }
+
     if (uploadForm.value.cover) fd.append("cover", uploadForm.value.cover);
 
     await uploadBook(fd);
     message("上传成功", { type: "success" });
     uploadVisible.value = false;
     onSearch();
-  } catch {
-    message("上传失败", { type: "error" });
+  } catch (err: any) {
+    message("上传失败: " + (err?.response?.data?.error || err?.message || ""), { type: "error" });
   } finally {
     uploading.value = false;
   }

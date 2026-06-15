@@ -8,6 +8,7 @@ import {
   updateMusic,
   type MusicItem
 } from "@/api/music";
+import { getPresignedUrl } from "@/api/upload";
 
 defineOptions({ name: "MusicIndex" });
 
@@ -133,8 +134,8 @@ async function handleUpdate() {
     message("更新成功", { type: "success" });
     editVisible.value = false;
     onSearch();
-  } catch {
-    message("更新失败", { type: "error" });
+  } catch (err: any) {
+    message("更新失败: " + (err?.response?.data?.error || err?.message || ""), { type: "error" });
   } finally {
     uploading.value = false;
   }
@@ -175,7 +176,26 @@ async function handleUpload() {
     fd.append("title", uploadForm.value.title);
     fd.append("artist", uploadForm.value.artist);
     fd.append("sort", String(uploadForm.value.sort));
-    if (uploadForm.value.file) fd.append("file", uploadForm.value.file);
+
+    // 大文件（>5MB）直传 R2，绕过 Netlify 6MB 限制
+    const audioFile = uploadForm.value.file;
+    if (audioFile && audioFile.size > 5 * 1024 * 1024) {
+      const presigned = await getPresignedUrl({
+        filename: audioFile.name,
+        contentType: audioFile.type || "audio/mpeg",
+        prefix: "uploads/music"
+      });
+      const res = await fetch(presigned.url, {
+        method: "PUT",
+        body: audioFile,
+        headers: { "Content-Type": audioFile.type || "audio/mpeg" }
+      });
+      if (!res.ok) throw new Error("音频文件直传失败");
+      fd.append("file", presigned.url.replace(/\?.*$/, ""));
+    } else if (audioFile) {
+      fd.append("file", audioFile);
+    }
+
     if (uploadForm.value.cover) fd.append("cover", uploadForm.value.cover);
     if (uploadForm.value.lrc) fd.append("lrc", uploadForm.value.lrc);
 
@@ -183,8 +203,8 @@ async function handleUpload() {
     message("上传成功", { type: "success" });
     uploadVisible.value = false;
     onSearch();
-  } catch {
-    message("上传失败", { type: "error" });
+  } catch (err: any) {
+    message("上传失败: " + (err?.response?.data?.error || err?.message || ""), { type: "error" });
   } finally {
     uploading.value = false;
   }

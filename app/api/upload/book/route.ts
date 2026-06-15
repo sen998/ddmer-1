@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { getCurrentUser } from "@/app/lib/auth";
-import { uploadFile, generateFileName } from "@/app/lib/r2";
+import { uploadFile, getFile, cleanUrlPath, generateFileName } from "@/app/lib/r2";
 import { parseEpubMeta, parseEpubChapters } from "@/app/lib/epub-parser";
 
 const ALLOWED_TYPES = [
@@ -28,40 +28,59 @@ export async function POST(request: Request) {
     }
 
     const formData = await request.formData();
-    const file = formData.get("file") as File | null;
+    const fileField = formData.get("file");
     const title = (formData.get("title") as string) || "";
     const author = (formData.get("author") as string) || "";
     const description = (formData.get("description") as string) || "";
     const categoryId = formData.get("category_id") ? parseInt(formData.get("category_id") as string) : null;
     const coverFile = formData.get("cover") as File | null;
 
-    if (!file) {
-      return NextResponse.json({ error: "缺少文件" }, { status: 400 });
-    }
-
     if (!title) {
       return NextResponse.json({ error: "缺少书名" }, { status: 400 });
     }
 
-    const fileName = file.name.toLowerCase();
-    const ext = ALLOWED_EXTENSIONS.find((e) => fileName.endsWith(e));
-    if (!ext) {
-      return NextResponse.json({ error: "不支持的文件格式，仅支持 EPUB、PDF、TXT、MOBI" }, { status: 400 });
+    let bookUrl = "";
+    let fileName = "";
+    let buffer: Buffer;
+    let fileSize = 0;
+    let fileType = "";
+    let format = "";
+
+    if (typeof fileField === "string") {
+      // 客户端已直传到 R2，传入的是 URL
+      bookUrl = fileField;
+      fileName = decodeURIComponent(bookUrl.split("/").pop() || "");
+      const key = cleanUrlPath(bookUrl);
+      const fileBuffer = await getFile(key);
+      if (!fileBuffer) {
+        return NextResponse.json({ error: "无法从 R2 读取图书文件" }, { status: 400 });
+      }
+      buffer = fileBuffer;
+      fileSize = buffer.length;
+      fileType = "application/octet-stream";
+      const extMatch = fileName.match(/\.([a-zA-Z0-9]+)$/);
+      format = extMatch ? extMatch[1].toLowerCase() : "";
+    } else if (fileField instanceof File) {
+      const file = fileField;
+      fileName = file.name;
+      fileSize = file.size;
+      fileType = file.type || "application/octet-stream";
+      if (file.size > MAX_SIZE) {
+        return NextResponse.json({ error: "文件大小超过 50MB 限制" }, { status: 400 });
+      }
+      const ext = ALLOWED_EXTENSIONS.find((e) => fileName.toLowerCase().endsWith(e));
+      if (!ext) {
+        return NextResponse.json({ error: "不支持的文件格式，仅支持 EPUB、PDF、TXT、MOBI" }, { status: 400 });
+      }
+      format = ext.replace(".", "");
+      const bytes = await file.arrayBuffer();
+      buffer = Buffer.from(bytes);
+      const safeName = generateFileName(format);
+      const bookKey = `uploads/books/${safeName}`;
+      bookUrl = await uploadFile(bookKey, bytes, fileType);
+    } else {
+      return NextResponse.json({ error: "缺少文件" }, { status: 400 });
     }
-
-    if (file.size > MAX_SIZE) {
-      return NextResponse.json({ error: "文件大小超过 50MB 限制" }, { status: 400 });
-    }
-
-    const format = ext.replace(".", "");
-    const safeName = generateFileName(ext.replace(".", ""));
-    const bookKey = `uploads/books/${safeName}`;
-
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-
-    // 上传图书文件
-    const bookUrl = await uploadFile(bookKey, bytes, file.type || "application/octet-stream");
 
     let finalTitle = title;
     let finalAuthor = author;

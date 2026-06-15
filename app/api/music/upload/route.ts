@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { getCurrentUser } from "@/app/lib/auth";
-import { uploadFile, generateFileName } from "@/app/lib/r2";
+import { uploadFile, getFile, cleanUrlPath, generateFileName } from "@/app/lib/r2";
 import * as mm from "music-metadata";
 
 const ALLOWED_TYPES = ["audio/mpeg", "audio/mp3", "audio/wav", "audio/flac"];
@@ -26,35 +26,52 @@ export async function POST(request: Request) {
     }
 
     const formData = await request.formData();
-    const file = formData.get("file") as File | null;
+    const fileField = formData.get("file");
     const title = (formData.get("title") as string) || "";
     const artist = (formData.get("artist") as string) || "";
     const coverFile = formData.get("cover") as File | null;
     const lrcFile = formData.get("lrc") as File | null;
     const sort = formData.get("sort") ? parseInt(formData.get("sort") as string) : 0;
 
-    if (!file) {
+    let musicUrl = "";
+    let fileName = "";
+    let buffer: Buffer;
+    let fileType = "";
+
+    if (typeof fileField === "string") {
+      // 客户端已直传到 R2，传入的是 URL
+      musicUrl = fileField;
+      fileName = decodeURIComponent(musicUrl.split("/").pop() || "");
+      const key = cleanUrlPath(musicUrl);
+      const fileBuffer = await getFile(key);
+      if (!fileBuffer) {
+        return NextResponse.json({ error: "无法从 R2 读取音频文件" }, { status: 400 });
+      }
+      buffer = fileBuffer;
+      const ext = fileName.split(".").pop()?.toLowerCase();
+      if (ext === "mp3") fileType = "audio/mpeg";
+      else if (ext === "wav") fileType = "audio/wav";
+      else if (ext === "flac") fileType = "audio/flac";
+      else fileType = "audio/mpeg";
+    } else if (fileField instanceof File) {
+      const file = fileField;
+      fileName = file.name;
+      if (file.size > MAX_SIZE) {
+        return NextResponse.json({ error: "文件大小超过 50MB 限制" }, { status: 400 });
+      }
+      const ext = ALLOWED_EXTENSIONS.find((e) => fileName.toLowerCase().endsWith(e));
+      if (!ext) {
+        return NextResponse.json({ error: "不支持的文件格式，仅支持 MP3、WAV、FLAC" }, { status: 400 });
+      }
+      const bytes = await file.arrayBuffer();
+      buffer = Buffer.from(bytes);
+      fileType = file.type || "audio/mpeg";
+      const safeName = generateFileName(ext.replace(".", ""));
+      const musicKey = `uploads/music/${safeName}`;
+      musicUrl = await uploadFile(musicKey, bytes, fileType);
+    } else {
       return NextResponse.json({ error: "缺少音频文件" }, { status: 400 });
     }
-
-    const fileName = file.name.toLowerCase();
-    const ext = ALLOWED_EXTENSIONS.find((e) => fileName.endsWith(e));
-    if (!ext) {
-      return NextResponse.json({ error: "不支持的文件格式，仅支持 MP3、WAV、FLAC" }, { status: 400 });
-    }
-
-    if (file.size > MAX_SIZE) {
-      return NextResponse.json({ error: "文件大小超过 50MB 限制" }, { status: 400 });
-    }
-
-    const safeName = generateFileName(ext.replace(".", ""));
-    const musicKey = `uploads/music/${safeName}`;
-
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-
-    // 上传音频文件到 R2
-    const musicUrl = await uploadFile(musicKey, bytes, file.type || "audio/mpeg");
 
     // 提取音频元数据
     let finalTitle = title;
