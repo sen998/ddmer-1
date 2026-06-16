@@ -1,0 +1,1 @@
+import{A as e}from"./index-BCb1IcWv.js";var t=t=>e.request(`get`,`/api/posts`,{params:t}),n=t=>e.request(`get`,`/api/posts/count`,{params:t}),r=t=>e.request(`get`,`/api/posts/detail/${t}`),i=t=>e.request(`post`,`/api/posts`,{data:t}),a=(t,n)=>e.request(`put`,`/api/posts/${t}`,{data:n}),o=t=>e.request(`delete`,`/api/posts/${t}`);export{t as a,n as i,o as n,a as o,r,i as t};
