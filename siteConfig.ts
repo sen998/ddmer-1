@@ -45,7 +45,7 @@ export const siteConfig = {
   },
 
   // 站点信息
-  buildDate: "2026-05-07T12:00:00",
+  buildDate: "2026-06-16T00:00:00",
   icpConfig: {
     name: "赣ICP备2025078417号",
     link: "https://beian.miit.gov.cn/",

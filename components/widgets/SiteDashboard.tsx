@@ -15,7 +15,7 @@ export default function SiteDashboard() {
   const moeIcpLink = useConfigValue("moeIcp_link", siteConfig.moeIcpConfig?.link || "");
 
   const START_DATE = new Date(
-    buildDate || "2026-05-07T12:00:00"
+    buildDate || "2026-06-16T00:00:00"
   ).getTime();
 
   useEffect(() => {

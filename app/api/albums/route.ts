@@ -5,8 +5,19 @@ import { getCurrentUser } from "@/app/lib/auth";
 export async function GET() {
   const albums = await prisma.album.findMany({
     orderBy: { sort: "asc" },
+    include: { _count: { select: { photos: true } } },
   });
-  return NextResponse.json(albums);
+  const list = albums.map((a) => ({
+    id: a.id,
+    title: a.title,
+    description: a.description,
+    cover: a.cover,
+    photo_count: a._count.photos,
+    sort: a.sort,
+    created_at: a.created_at,
+    updated_at: a.updated_at,
+  }));
+  return NextResponse.json(list);
 }
 
 export async function POST(request: NextRequest) {

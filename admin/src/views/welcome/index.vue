@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, markRaw } from "vue";
+import { ref, markRaw, onMounted } from "vue";
 import ReCol from "@/components/ReCol";
 import { useDark, randomGradient } from "./utils";
 import WelcomeTable from "./components/table/index.vue";
@@ -7,7 +7,8 @@ import { ReNormalCountTo } from "@/components/ReCountTo";
 import { useRenderFlicker } from "@/components/ReFlicker";
 import { ChartBar, ChartLine, ChartRound } from "./components/charts";
 import Segmented, { type OptionsType } from "@/components/ReSegmented";
-import { chartData, barChartData, progressData, latestNewsData } from "./data";
+import { chartData as staticChartData, barChartData as staticBarChartData, latestNewsData as staticLatestNewsData, progressData as staticProgressData } from "./data";
+import { getWelcomeStats, type WelcomeChartItem, type WelcomeStats, type WelcomeLatestItem } from "@/api/dashboard";
 
 defineOptions({
   name: "Welcome"
@@ -24,6 +25,73 @@ const optionsBasis: Array<OptionsType> = [
     label: "本周"
   }
 ];
+
+// 用真实数据初始化，未加载完成时使用静态兜底
+type ChartCard = (typeof staticChartData)[number] & {
+  data: number[];
+  name: string;
+  value: number;
+};
+
+const chartData = ref<ChartCard[]>(
+  staticChartData.map((c) => ({
+    ...c,
+    name: c.name,
+    value: c.value,
+    data: [...c.data],
+  }))
+);
+const barChartData = ref<Array<{ requireData: number[]; questionData: number[] }>>(
+  staticBarChartData.map((b) => ({
+    requireData: [...b.requireData],
+    questionData: [...b.questionData],
+  }))
+);
+const latestNewsData = ref<WelcomeLatestItem[]>([...staticLatestNewsData]);
+const progressData = ref<any[]>([...staticProgressData]);
+
+const loading = ref(false);
+
+// 根据 name 合并 API 返回的 value/data
+function mergeByName(
+  original: ChartCard[],
+  incoming: WelcomeChartItem[]
+): ChartCard[] {
+  if (!incoming?.length) return original;
+  return original.map((item) => {
+    const hit = incoming.find((x) => x.name === item.name);
+    if (!hit) return item;
+    return {
+      ...item,
+      value: hit.value,
+      data: Array.isArray(hit.data) ? hit.data : item.data,
+    };
+  });
+}
+
+async function loadWelcome() {
+  loading.value = true;
+  try {
+    const res = await getWelcomeStats();
+    if (res) {
+      chartData.value = mergeByName(chartData.value, res.chartData ?? []);
+      if (res.barChartData?.length) {
+        barChartData.value = res.barChartData;
+      }
+      if (Array.isArray(res.latestNewsData)) {
+        latestNewsData.value = res.latestNewsData;
+      }
+    }
+  } catch (err) {
+    console.error("[welcome] load stats failed:", err);
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(() => {
+  loadWelcome();
+});
 </script>
 
 <template>
