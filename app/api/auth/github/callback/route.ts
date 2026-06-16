@@ -31,6 +31,7 @@ export async function GET(request: Request) {
     }
 
     // 1) 获取 access_token
+    const redirectUri = `${process.env.FRONTEND_ORIGIN || "https://ddmer.ccwu.cc"}/api/auth/github/callback`;
     const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
       method: "POST",
       headers: {
@@ -41,13 +42,18 @@ export async function GET(request: Request) {
         client_id: clientId,
         client_secret: clientSecret,
         code,
+        redirect_uri: redirectUri,
       }),
     });
     const tokenData = await tokenRes.json();
     const accessToken = tokenData.access_token;
     if (!accessToken) {
       return NextResponse.json(
-        { error: "获取 GitHub access_token 失败" },
+        {
+          error: "获取 GitHub access_token 失败",
+          github_error: tokenData.error,
+          github_description: tokenData.error_description,
+        },
         { status: 400 }
       );
     }
