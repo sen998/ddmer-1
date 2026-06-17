@@ -73,6 +73,11 @@ const Icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
     </svg>
   ),
+  refresh: (
+    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 12a9 9 0 0115.5-6.36L21 8M21 3v5h-5M21 12a9 9 0 01-15.5 6.36L3 16M3 21v-5h5" />
+    </svg>
+  ),
 };
 
 const modeConfig: Record<string, { icon: React.ReactNode; label: string }> = {
@@ -95,8 +100,15 @@ export default function MusicPage() {
     playlist, currentIndex, currentSong, isPlaying, progress, currentTime, duration,
     currentLyric, allLyrics, isLoading, volume, isMuted, playMode,
     togglePlay, nextSong, prevSong, handleSeek, playSong,
-    setVolume, toggleMute, togglePlayMode,
+    setVolume, toggleMute, togglePlayMode, refreshPlaylist,
   } = useMusic();
+
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try { await refreshPlaylist(); } finally { setRefreshing(false); }
+  };
 
   const lyricContainerRef = useRef<HTMLDivElement>(null);
   const activeLyricRef = useRef<HTMLDivElement>(null);
@@ -256,22 +268,40 @@ export default function MusicPage() {
       </MusicCard>
 
       {/* Tab switch */}
-      <div className="flex gap-1 mb-3 md:mb-4 rounded-xl md:rounded-2xl bg-white/30 dark:bg-slate-800/40 backdrop-blur-md border border-white/30 dark:border-white/10 p-1">
-        <button type="button" onClick={() => setTab("lyrics")}
-          className={`flex-1 py-2 md:py-2.5 rounded-lg md:rounded-xl text-xs md:text-sm font-bold transition-all flex items-center justify-center gap-1 md:gap-1.5 ${
-            tab === "lyrics"
-              ? "bg-white/60 dark:bg-slate-700/70 text-indigo-600 dark:text-indigo-400 shadow-sm"
-              : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-          }`}>
-          {Icons.lyrics} 歌词
-        </button>
-        <button type="button" onClick={() => setTab("playlist")}
-          className={`flex-1 py-2 md:py-2.5 rounded-lg md:rounded-xl text-xs md:text-sm font-bold transition-all flex items-center justify-center gap-1 md:gap-1.5 ${
-            tab === "playlist"
-              ? "bg-white/60 dark:bg-slate-700/70 text-indigo-600 dark:text-indigo-400 shadow-sm"
-              : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-          }`}>
-          {Icons.playlist} 播放列表
+      <div className="flex items-stretch gap-2 mb-3 md:mb-4">
+        <div className="flex-1 flex gap-1 rounded-xl md:rounded-2xl bg-white/30 dark:bg-slate-800/40 backdrop-blur-md border border-white/30 dark:border-white/10 p-1">
+          <button type="button" onClick={() => setTab("lyrics")}
+            className={`flex-1 py-2 md:py-2.5 rounded-lg md:rounded-xl text-xs md:text-sm font-bold transition-all flex items-center justify-center gap-1 md:gap-1.5 ${
+              tab === "lyrics"
+                ? "bg-white/60 dark:bg-slate-700/70 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+            }`}>
+            {Icons.lyrics} 歌词
+          </button>
+          <button type="button" onClick={() => setTab("playlist")}
+            className={`flex-1 py-2 md:py-2.5 rounded-lg md:rounded-xl text-xs md:text-sm font-bold transition-all flex items-center justify-center gap-1 md:gap-1.5 ${
+              tab === "playlist"
+                ? "bg-white/60 dark:bg-slate-700/70 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+            }`}>
+            {Icons.playlist} 播放列表
+            {playlist.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 font-bold tabular-nums">
+                {playlist.length}
+              </span>
+            )}
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={refreshing}
+          title="刷新歌单"
+          className="shrink-0 px-3 rounded-xl md:rounded-2xl bg-white/30 dark:bg-slate-800/40 backdrop-blur-md border border-white/30 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-white/50 dark:hover:bg-slate-700/50 transition-all flex items-center justify-center disabled:opacity-50"
+        >
+          <span className={refreshing ? "animate-spin inline-flex" : "inline-flex"}>
+            {Icons.refresh}
+          </span>
         </button>
       </div>
 

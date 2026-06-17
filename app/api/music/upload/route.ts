@@ -4,9 +4,102 @@ import { getCurrentUser } from "@/app/lib/auth";
 import { uploadFile, getFile, getFileUrl, cleanUrlPath, generateFileName } from "@/app/lib/r2";
 import * as mm from "music-metadata";
 
-const ALLOWED_TYPES = ["audio/mpeg", "audio/mp3", "audio/wav", "audio/flac"];
-const ALLOWED_EXTENSIONS = [".mp3", ".wav", ".flac"];
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const runtime = "nodejs";
+
+const ALLOWED_EXTENSIONS = [".mp3", ".wav", ".flac", ".mp4", ".m4a", ".aac", ".ogg", ".oga"];
 const MAX_SIZE = 50 * 1024 * 1024; // 50MB
+
+/** 文件扩展名 -> Content-Type / mime 推断 */
+function mimeFromName(name: string): string {
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  switch (ext) {
+    case "mp3":  return "audio/mpeg";
+    case "wav":  return "audio/wav";
+    case "flac": return "audio/flac";
+    case "mp4":  return "audio/mp4";
+    case "m4a":  return "audio/mp4";
+    case "aac":  return "audio/aac";
+    case "ogg":
+    case "oga":  return "audio/ogg";
+    default:     return "audio/mpeg";
+  }
+}
+
+/** 是否允许的音频扩展名 */
+function isAllowedExt(name: string): string | null {
+  const lower = name.toLowerCase();
+  return ALLOWED_EXTENSIONS.find((e) => lower.endsWith(e)) || null;
+}
+
+/** 从多来源提取歌词：music-metadata common.lyrics / native tags / comment 字段 */
+function pickLyrics(common: mm.ICommonTagsResult, native: mm.INativeTagDict): string {
+  // 1) music-metadata 已经把 USLT(MP3)、SYLT(MP3)、LYRICS(FLAC/OGG)、©lyr(MP4)
+  //    等统一收集到 common.lyrics（ILyricsTag[]）。这是最稳的来源。
+  if (common.lyrics && common.lyrics.length > 0) {
+    for (const l of common.lyrics) {
+      const text = l?.text;
+      if (text && text.trim()) return text;
+    }
+  }
+
+  // 2) 再翻一遍 native tags 兜底（不同版本/不同容器可能只暴露在 native 里）
+  const lyricTagIds = new Set([
+    "USLT", "SYLT",                  // ID3v2
+    "LYRICS", "lyrics",              // Vorbis (FLAC/OGG)
+    "©lyr", "©LYR",                  // MP4/M4A iTunes atom
+    "WM/Lyrics",                     // WMA/ASF
+    "\u0000LYR",                     // 一些工具写出的带空格的 ID3
+  ]);
+  for (const tagList of Object.values(native || {})) {
+    for (const tag of tagList as any[]) {
+      const id = String(tag?.id || "").trim();
+      if (!lyricTagIds.has(id)) continue;
+      const val: any = tag.value;
+      if (typeof val === "string" && val.trim()) return val.trim();
+      if (val && typeof val === "object") {
+        if (typeof val.text === "string" && val.text.trim()) return val.text.trim();
+        if (Array.isArray(val)) {
+          // SYLT 同步歌词：[{ text, timeStamp }]
+          const tsv = val
+            .map((entry: any) => {
+              const text = entry?.text || "";
+              if (typeof entry?.timeStamp === "number") {
+                const ms = entry.timeStamp;
+                const m = Math.floor(ms / 60000);
+                const s = Math.floor((ms % 60000) / 1000);
+                const cs = Math.floor((ms % 1000) / 10);
+                return `[${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}]${text}`;
+              }
+              return text;
+            })
+            .filter(Boolean)
+            .join("\n");
+          if (tsv.trim()) return tsv;
+        }
+      }
+    }
+  }
+
+  // 3) 一些压缩/转码工具把 LRC 整段塞到 comment / description
+  const lookalike = (v: any): string | null => {
+    if (!v) return null;
+    if (typeof v === "string") return v;
+    if (typeof v.text === "string") return v.text;
+    if (Array.isArray(v)) {
+      const joined = v.map((x) => (typeof x === "string" ? x : x?.text || "")).join("\n");
+      return joined || null;
+    }
+    return null;
+  };
+  for (const c of common.comment || []) {
+    const txt = lookalike(c);
+    if (txt && /\[\d{1,2}:\d{1,2}(?:[.:]\d{1,3})?\]/.test(txt)) return txt;
+  }
+
+  return "";
+}
 
 function sanitizeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5._-]/g, "_").slice(0, 100);
@@ -48,24 +141,23 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "无法从 R2 读取音频文件" }, { status: 400 });
       }
       buffer = fileBuffer;
-      const ext = fileName.split(".").pop()?.toLowerCase();
-      if (ext === "mp3") fileType = "audio/mpeg";
-      else if (ext === "wav") fileType = "audio/wav";
-      else if (ext === "flac") fileType = "audio/flac";
-      else fileType = "audio/mpeg";
+      fileType = mimeFromName(fileName);
     } else if (fileField instanceof File) {
       const file = fileField;
       fileName = file.name;
       if (file.size > MAX_SIZE) {
         return NextResponse.json({ error: "文件大小超过 50MB 限制" }, { status: 400 });
       }
-      const ext = ALLOWED_EXTENSIONS.find((e) => fileName.toLowerCase().endsWith(e));
+      const ext = isAllowedExt(fileName);
       if (!ext) {
-        return NextResponse.json({ error: "不支持的文件格式，仅支持 MP3、WAV、FLAC" }, { status: 400 });
+        return NextResponse.json(
+          { error: `不支持的文件格式，仅支持 ${ALLOWED_EXTENSIONS.join(" / ")}` },
+          { status: 400 }
+        );
       }
       const bytes = await file.arrayBuffer();
       buffer = Buffer.from(bytes);
-      fileType = file.type || "audio/mpeg";
+      fileType = file.type || mimeFromName(fileName);
       const safeName = generateFileName(ext.replace(".", ""));
       const musicKey = `uploads/music/${safeName}`;
       musicUrl = await uploadFile(musicKey, bytes, fileType);
@@ -80,7 +172,7 @@ export async function POST(request: Request) {
     let lrcText = "";
 
     try {
-      const metadata = await mm.parseBuffer(buffer, { mimeType: file.type || "audio/mpeg" });
+      const metadata = await mm.parseBuffer(buffer, { mimeType: fileType });
       const common = metadata.common;
 
       if (!finalTitle && common.title) finalTitle = common.title;
@@ -97,35 +189,8 @@ export async function POST(request: Request) {
         coverUrl = await uploadFile(picKey, pic.data.buffer, pic.format || "image/jpeg");
       }
 
-      // 提取内嵌歌词
-      if (common.lyrics && common.lyrics.length > 0) {
-        const first = common.lyrics[0];
-        lrcText = typeof first === "string" ? first : first.text || "";
-      }
-      if (!lrcText && metadata.native) {
-        const lyricTagIds = ["LYRICS", "lyrics", "USLT", "SYLT", "©lyr", "WM/Lyrics", "Lyrics"];
-        for (const [tagType, tags] of Object.entries(metadata.native)) {
-          for (const tag of tags as any[]) {
-            if (lyricTagIds.includes(tag.id) && tag.value) {
-              const val = typeof tag.value === "string" ? tag.value : tag.value.text || tag.value;
-              if (val && typeof val === "string" && val.trim().length > 10) {
-                lrcText = val.trim();
-                break;
-              }
-            }
-          }
-          if (lrcText) break;
-        }
-      }
-      if (!lrcText && common.comment && common.comment.length > 0) {
-        for (const c of common.comment) {
-          const text = typeof c === "string" ? c : c.text || "";
-          if (text && text.includes("[") && text.includes("]")) {
-            lrcText = text;
-            break;
-          }
-        }
-      }
+      // 提取内嵌歌词：USLT(MP3) / SYLT(MP3) / LYRICS(FLAC/OGG) / ©lyr(MP4) / WM/Lyrics(WMA)
+      lrcText = pickLyrics(common, metadata.native || {});
     } catch (e) {
       console.error("Metadata parse error:", e);
     }

@@ -350,14 +350,14 @@ onMounted(() => {
         </el-form-item>
         <el-form-item label="音频" prop="file">
           <el-upload
-            accept=".mp3,.wav,.flac"
+            accept=".mp3,.wav,.flac,.mp4,.m4a,.aac,.ogg,.oga"
             :auto-upload="false"
             :limit="1"
             :on-change="handleFileChange"
           >
             <el-button type="primary">选择音频文件</el-button>
             <template #tip>
-              <div class="el-upload__tip">支持 MP3 / WAV / FLAC，最大 50MB</div>
+              <div class="el-upload__tip">支持 MP3 / WAV / FLAC / MP4 / M4A / AAC / OGG，最大 50MB</div>
             </template>
           </el-upload>
         </el-form-item>

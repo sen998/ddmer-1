@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import Meting from "@meting/core";
 
+// 歌单是动态数据，不允许 Next.js / CDN 缓存
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const runtime = "nodejs";
+
 interface SongData {
   id: string;
   title: string;

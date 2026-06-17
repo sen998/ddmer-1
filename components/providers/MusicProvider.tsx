@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useRef, useEffect, useCallback, ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { siteConfig } from "@/siteConfig";
 
 function parseLrc(lrcText: string) {
@@ -59,6 +60,7 @@ interface MusicContextType {
   playMode: PlayMode;
   saying: string;
   refreshSaying: () => void;
+  refreshPlaylist: () => Promise<void>;
   togglePlay: () => void;
   nextSong: () => void;
   prevSong: () => void;
@@ -88,6 +90,8 @@ export function MusicProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const playModeRef = useRef(playMode);
   const nextSongRef = useRef<() => void>(() => {});
+  const fetchIdRef = useRef(0);
+  const pathname = usePathname();
 
   // Fetch saying once on mount
   const refreshSaying = useCallback(() => {
@@ -99,65 +103,94 @@ export function MusicProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { refreshSaying(); }, [refreshSaying]);
 
-  // Fetch playlist: local + netease combined
-  useEffect(() => {
-    let mounted = true;
-    const fetchMusicData = async () => {
+  // 实际的拉取逻辑：被初次 mount / refreshPlaylist / 进入 /music 路由 三处复用
+  const fetchMusicData = useCallback(async (opts?: { silent?: boolean }) => {
+    const myId = ++fetchIdRef.current;
+    if (!opts?.silent) setIsLoading(true);
+    try {
+      // 优先从 API 获取动态配置，回退到静态 siteConfig
+      let playlistId = siteConfig.cloudMusicPlaylistId;
+      let musicIds: string[] = siteConfig.cloudMusicIds as string[];
       try {
-        // 优先从 API 获取动态配置，回退到静态 siteConfig
-        let playlistId = siteConfig.cloudMusicPlaylistId;
-        let musicIds: string[] = siteConfig.cloudMusicIds as string[];
-        try {
-          const configRes = await fetch("/api/site-config");
-          if (configRes.ok) {
-            const config = await configRes.json();
-            if (config.cloud_music_playlist_id) {
-              playlistId = config.cloud_music_playlist_id;
-            }
-            if (config.cloud_music_ids) {
-              try {
-                const parsed = JSON.parse(config.cloud_music_ids);
-                if (Array.isArray(parsed) && parsed.length > 0) musicIds = parsed;
-              } catch { /* ignore */ }
-            }
+        const configRes = await fetch("/api/site-config", { cache: "no-store" });
+        if (configRes.ok) {
+          const config = await configRes.json();
+          if (config.cloud_music_playlist_id) {
+            playlistId = config.cloud_music_playlist_id;
           }
-        } catch { /* 用静态配置回退 */ }
-
-        let apiUrl = "/api/music";
-        if (playlistId) {
-          apiUrl += `?id=${playlistId}`;
-        } else if (musicIds?.length > 0) {
-          apiUrl += `?ids=${musicIds.join(",")}`;
+          if (config.cloud_music_ids) {
+            try {
+              const parsed = JSON.parse(config.cloud_music_ids);
+              if (Array.isArray(parsed) && parsed.length > 0) musicIds = parsed;
+            } catch { /* ignore */ }
+          }
         }
+      } catch { /* 用静态配置回退 */ }
 
-        const res = await fetch(apiUrl);
-        const data = await res.json();
+      let apiUrl = "/api/music";
+      const params = new URLSearchParams();
+      if (playlistId) params.set("id", playlistId);
+      else if (musicIds?.length > 0) params.set("ids", musicIds.join(","));
+      // 始终附加时间戳，避免浏览器/CDN 缓存拿到旧的歌单
+      params.set("_t", String(Date.now()));
+      const qs = params.toString();
+      if (qs) apiUrl += `?${qs}`;
 
-        const songs = (Array.isArray(data) ? data : [])
-          .map((r: Record<string, unknown>) => ({
-            id: String(r.id || Math.random()),
-            title: String(r.title || r.name || "未知歌曲"),
-            artist: String(r.artist || r.author || "未知歌手"),
-            cover: String(r.cover || r.pic || ""),
-            src: String(r.src || r.url || ""),
-            lrcUrl: String(r.lrcUrl || r.lrc || ""),
-            lyrics: [] as { time: number; text: string }[],
-            type: (r.type as SongType) || "netease" as SongType,
-            dbId: r.dbId as number | undefined,
-          }))
-          .filter((s) => s.src);
+      const res = await fetch(apiUrl, { cache: "no-store" });
+      const data = await res.json();
 
-        if (mounted) {
-          if (songs.length > 0) setPlaylist(songs);
-          setIsLoading(false);
-        }
-      } catch {
-        if (mounted) setIsLoading(false);
+      const songs = (Array.isArray(data) ? data : [])
+        .map((r: Record<string, unknown>) => ({
+          id: String(r.id || Math.random()),
+          title: String(r.title || r.name || "未知歌曲"),
+          artist: String(r.artist || r.author || "未知歌手"),
+          cover: String(r.cover || r.pic || ""),
+          src: String(r.src || r.url || ""),
+          lrcUrl: String(r.lrcUrl || r.lrc || ""),
+          lyrics: [] as { time: number; text: string }[],
+          type: (r.type as SongType) || "netease" as SongType,
+          dbId: r.dbId as number | undefined,
+        }))
+        .filter((s) => s.src);
+
+      // 若本轮拉取被更新的请求取代，丢弃旧结果
+      if (myId !== fetchIdRef.current) return;
+
+      // 关键：直接覆盖 playlist（而不是只在空时写入）
+      if (songs.length > 0) {
+        setPlaylist(songs);
+        // 当前播放的歌如果还在新列表里，保留索引；否则重置到第一首
+        setCurrentIndex((prev) => {
+          const stillExists = songs.findIndex((s) => s.id === playlist[prev]?.id);
+          return stillExists >= 0 ? stillExists : 0;
+        });
+      } else {
+        setPlaylist([]);
+        setCurrentIndex(0);
       }
-    };
+    } catch {
+      // 静默失败：保持原列表不变
+    } finally {
+      if (myId === fetchIdRef.current) setIsLoading(false);
+    }
+  }, [playlist]);
+
+  // 初次加载
+  useEffect(() => {
     fetchMusicData();
-    return () => { mounted = false; };
-  }, []);
+  }, [fetchMusicData]);
+
+  // 进入 /music 路由时强制刷新一次（解决后台改了歌单，前台不刷新的问题）
+  useEffect(() => {
+    if (pathname && pathname.startsWith("/music")) {
+      fetchMusicData({ silent: true });
+    }
+  }, [pathname, fetchMusicData]);
+
+  // 暴露给外部的手动刷新（UI 上可加按钮）
+  const refreshPlaylist = useCallback(async () => {
+    await fetchMusicData({ silent: true });
+  }, [fetchMusicData]);
 
   // Fetch lyrics when song changes
   useEffect(() => {
@@ -274,7 +307,7 @@ export function MusicProvider({ children }: { children: ReactNode }) {
         playlist, currentIndex, currentSong: playlist[currentIndex],
         isPlaying, progress, currentTime, duration,
         currentLyric, allLyrics: lyrics, isLoading,
-        volume, isMuted, playMode, saying, refreshSaying,
+        volume, isMuted, playMode, saying, refreshSaying, refreshPlaylist,
         togglePlay, nextSong, prevSong, handleSeek, playSong,
         setVolume, toggleMute, togglePlayMode,
       }}
