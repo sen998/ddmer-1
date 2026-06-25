@@ -124,6 +124,35 @@ export function cleanUrlPath(url: string): string {
   }
 }
 
+export function isR2Url(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const publicUrl = process.env.R2_PUBLIC_URL;
+    if (publicUrl) {
+      const publicHostname = new URL(publicUrl).hostname;
+      if (parsed.hostname === publicHostname) return true;
+    }
+    const accountId = process.env.R2_ACCOUNT_ID;
+    if (accountId && parsed.hostname === `${accountId}.r2.cloudflarestorage.com`) {
+      return true;
+    }
+    if (parsed.hostname.endsWith(".r2.cloudflarestorage.com")) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export function extractR2Urls(content: string): string[] {
+  const urls: string[] = [];
+  const mdImg = /!\[.*?\]\((https?:\/\/[^\s)]+)\)/g;
+  const htmlImg = /<img[^>]+src=["'](https?:\/\/[^"']+)["']/g;
+  let m: RegExpExecArray | null;
+  while ((m = mdImg.exec(content)) !== null) urls.push(m[1]);
+  while ((m = htmlImg.exec(content)) !== null) urls.push(m[1]);
+  return [...new Set(urls.filter(isR2Url))];
+}
+
 export function generateFileName(ext: string): string {
   const timestamp = Date.now();
   const random = Math.random().toString(36).substring(2, 8);

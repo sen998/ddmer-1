@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { getCurrentUser } from "@/app/lib/auth";
-import { deleteFile, cleanUrlPath } from "@/app/lib/r2";
+import { deleteFile, cleanUrlPath, extractR2Urls } from "@/app/lib/r2";
 
 function toPostItem(post: any) {
   return {
@@ -46,21 +46,23 @@ export async function GET(
 ) {
   try {
     const { postId } = await params;
-    const isNumeric = /^\d+$/.test(postId);
 
-    let post;
-    if (isNumeric) {
-      post = await prisma.post.findUnique({
-        where: { id: parseInt(postId, 10) },
+    // 优先按 slug 查询（支持纯数字 slug），命中时增加浏览量；
+    // 未命中且参数为数字时，再按 ID 查询（编辑/管理场景，不增加浏览量）。
+    let post = await prisma.post
+      .update({
+        where: { slug: postId },
+        data: { views: { increment: 1 } },
         include: {
           category: true,
           tags: { include: { tag: true } },
         },
-      });
-    } else {
-      post = await prisma.post.update({
-        where: { slug: postId },
-        data: { views: { increment: 1 } },
+      })
+      .catch(() => null);
+
+    if (!post && /^\d+$/.test(postId)) {
+      post = await prisma.post.findUnique({
+        where: { id: parseInt(postId, 10) },
         include: {
           category: true,
           tags: { include: { tag: true } },
@@ -193,6 +195,20 @@ export async function PUT(
       return updated;
     });
 
+    // 清理 R2：封面变更时删除旧封面；正文移除的图片也删除
+    if (cover !== undefined && cover !== existing.cover && existing.cover) {
+      await deleteFile(cleanUrlPath(existing.cover)).catch(() => {});
+    }
+    if (content !== undefined && content !== existing.content) {
+      const oldUrls = extractR2Urls(existing.content);
+      const newUrls = extractR2Urls(content);
+      for (const url of oldUrls) {
+        if (!newUrls.includes(url)) {
+          await deleteFile(cleanUrlPath(url)).catch(() => {});
+        }
+      }
+    }
+
     // 更新新旧 category 的 post_count
     if (oldCategoryId !== newCategoryId) {
       if (oldCategoryId) {
@@ -239,9 +255,12 @@ export async function DELETE(
       return NextResponse.json({ error: "文章不存在" }, { status: 404 });
     }
 
-    // 删除封面图
-    if (existing.cover) {
-      await deleteFile(cleanUrlPath(existing.cover)).catch(() => {});
+    // 删除封面图及正文引用的 R2 图片
+    const r2Urls = new Set<string>();
+    if (existing.cover) r2Urls.add(existing.cover);
+    extractR2Urls(existing.content).forEach((url) => r2Urls.add(url));
+    for (const url of r2Urls) {
+      await deleteFile(cleanUrlPath(url)).catch(() => {});
     }
 
     await prisma.$transaction(async (tx) => {

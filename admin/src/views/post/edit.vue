@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
+import { pinyin } from "pinyin-pro";
 import { message } from "@/utils/message";
 import {
   getPostById,
@@ -54,10 +55,14 @@ const rules = {
 
 function autoSlug() {
   if (!form.value.slug && form.value.title) {
-    form.value.slug = form.value.title
-      .toLowerCase()
-      .replace(/\s+/g, "-")
-      .replace(/[^\w\-]/g, "");
+    const arr = pinyin(form.value.title, { toneType: "none", type: "array" });
+    const raw = arr
+      .map(s => s.toLowerCase())
+      .join("-")
+      .replace(/[^a-z0-9-]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
+    form.value.slug = raw || Date.now().toString();
   }
 }
 
