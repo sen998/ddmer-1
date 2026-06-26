@@ -22,6 +22,11 @@ export default function ProfileCard({
   const avatarUrl = useConfigValue("avatarUrl", siteConfig.avatarUrl);
   const authorName = useConfigValue("authorName", siteConfig.authorName);
   const bio = useConfigValue("bio", siteConfig.bio);
+  const github = useConfigValue("social_github", siteConfig.social?.github);
+  const bilibili = useConfigValue("social_bilibili", siteConfig.social?.bilibili);
+  const email = useConfigValue("social_email", siteConfig.social?.email);
+  const x = useConfigValue("social_x", siteConfig.social?.x);
+  const youtube = useConfigValue("social_youtube", siteConfig.social?.youtube);
 
   // 客户端定期拉取最新统计，覆盖服务端渲染的初始值（Next.js 默认会缓存 server component 结果）
   const [stats, setStats] = useState<ProfileStats>({
@@ -116,21 +121,11 @@ export default function ProfileCard({
         </div>
 
         <div className="flex gap-3 flex-wrap justify-end">
-          {siteConfig.social?.github && (
-            <SocialBtn type="github" url={siteConfig.social.github} />
-          )}
-          {siteConfig.social?.bilibili && (
-            <SocialBtn type="bilibili" url={siteConfig.social.bilibili} />
-          )}
-          {siteConfig.social?.email && (
-            <SocialBtn type="email" url={`mailto:${siteConfig.social.email}`} />
-          )}
-          {siteConfig.social?.x && (
-            <SocialBtn type="x" url={siteConfig.social.x} />
-          )}
-          {siteConfig.social?.youtube && (
-            <SocialBtn type="youtube" url={siteConfig.social.youtube} />
-          )}
+          {github && <SocialBtn type="github" url={github} />}
+          {bilibili && <SocialBtn type="bilibili" url={bilibili} />}
+          {email && <SocialBtn type="email" url={`mailto:${email}`} />}
+          {x && <SocialBtn type="x" url={x} />}
+          {youtube && <SocialBtn type="youtube" url={youtube} />}
         </div>
       </div>
     </div>
