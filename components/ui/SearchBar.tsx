@@ -3,20 +3,36 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export default function SearchBar() {
+interface SearchBarProps {
+  onSearch?: (keyword: string) => void;
+  initialValue?: string;
+  placeholder?: string;
+}
+
+export default function SearchBar({
+  onSearch,
+  initialValue = "",
+  placeholder = "输入暗号探索更多...",
+}: SearchBarProps) {
   const router = useRouter();
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(initialValue);
 
   function handleSubmit() {
-    if (value.trim() === "5201314") {
+    const keyword = value.trim();
+
+    // 保留彩蛋：输入 5201314 解锁秘密花园
+    if (keyword === "5201314") {
       localStorage.setItem("garden-unlock", "true");
       router.push("/garden");
       setValue("");
+      return;
     }
+
+    onSearch?.(keyword);
   }
 
   return (
-    <div className="w-full max-w-2xl mx-auto mb-10">
+    <div className="w-full max-w-2xl mx-auto">
       <form
         className="relative group"
         onSubmit={(e) => {
@@ -27,7 +43,7 @@ export default function SearchBar() {
         <input
           type="text"
           className="w-full pl-14 pr-6 py-4 bg-white/50 dark:bg-slate-800/50 backdrop-blur-xl border border-white/40 dark:border-white/10 rounded-3xl shadow-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-slate-800 dark:text-slate-200 transition-all placeholder-slate-500 dark:placeholder-slate-400 font-medium text-lg"
-          placeholder="输入暗号探索更多..."
+          placeholder={placeholder}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           autoComplete="off"

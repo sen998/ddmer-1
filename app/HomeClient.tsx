@@ -1,7 +1,6 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import SearchBar from "@/components/ui/SearchBar";
 import ProfileCard from "@/components/home/ProfileCard";
 import FadeIn from "@/components/ui/FadeIn";
 
@@ -24,13 +23,6 @@ export default function HomeClient({
 }) {
   return (
     <div className="w-full max-w-6xl mx-auto py-6 md:py-12 px-4 sm:px-10 relative z-10">
-      {/* 搜索栏 */}
-      <FadeIn>
-        <div className="hidden md:block">
-          <SearchBar />
-        </div>
-      </FadeIn>
-
       <main className="flex flex-col gap-4 md:gap-6 w-full">
         {/* 第一行：个人信息 + 播放器 */}
         <FadeIn delay={0.1}>

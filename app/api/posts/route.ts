@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get("status") || undefined;
     const categorySlug = searchParams.get("category") || undefined;
     const tagSlug = searchParams.get("tag") || undefined;
+    const keyword = searchParams.get("keyword") || undefined;
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
     const size = Math.max(1, parseInt(searchParams.get("size") || "10", 10));
 
@@ -69,6 +70,14 @@ export async function GET(req: NextRequest) {
     if (categoryId) where.category_id = categoryId;
     if (tagId) {
       where.tags = { some: { tag_id: tagId } };
+    }
+    if (keyword?.trim()) {
+      const k = keyword.trim();
+      where.OR = [
+        { title: { contains: k } },
+        { description: { contains: k } },
+        { content: { contains: k } },
+      ];
     }
 
     const posts = await prisma.post.findMany({

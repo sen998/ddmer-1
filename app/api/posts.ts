@@ -27,6 +27,7 @@ export function getPosts(params?: {
   status?: string;
   category?: string;
   tag?: string;
+  keyword?: string;
   page?: number;
   size?: number;
 }) {
