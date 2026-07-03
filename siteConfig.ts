@@ -2,9 +2,9 @@
 
 export const siteConfig = {
   // 网站标题与博主信息
-  title: "My Blog",
+  title: "senの小站",
   url: "https://example.com/",
-  authorName: "Admin",
+  authorName: "sen",
   bio: "欢迎来到我的博客",
 
   // 头像设置
