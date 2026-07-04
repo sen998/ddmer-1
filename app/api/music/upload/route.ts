@@ -8,6 +8,15 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const runtime = "nodejs";
 
+// ========== 关键：调大 body size limit，解决 413 错误 ==========
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '50mb',
+    },
+  },
+};
+
 const ALLOWED_EXTENSIONS = [".mp3", ".wav", ".flac", ".mp4", ".m4a", ".aac", ".ogg", ".oga"];
 const MAX_SIZE = 50 * 1024 * 1024; // 50MB
 
